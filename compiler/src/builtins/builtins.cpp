@@ -872,6 +872,10 @@ struct builtin_cast : builtin {
       code << "(("
            << dt_compiler->convert_dt(out_dt, datatype_location::CAST, "", "")
            << ")yk__bstr_get_reference(" << args[1].first << "))";
+    } else if (out_dt->const_unwrap()->is_a_string() && args[1].second.datatype_->const_unwrap()->is_an_integer()) {
+      // Integer to string conversion
+      const char* format = (args[1].second.datatype_->const_unwrap()->is_i64() || args[1].second.datatype_->const_unwrap()->is_u64()) ? "%lld" : "%d";
+      code << "yk__sdscatprintf(yk__sdsempty(), \"" << format << "\", " << args[1].first << ")";
     } else {
       code << "(("
            << dt_compiler->convert_dt(out_dt, datatype_location::CAST, "", "")
