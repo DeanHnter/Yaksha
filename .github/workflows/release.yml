@@ -9,27 +9,22 @@ env:
   ZIG_VERSION: 0.12.0
 
 jobs:
+
   release-windows:
     runs-on: windows-latest
     permissions: { contents: write }
     steps:
       - uses: actions/checkout@v4
         with: { path: main, submodules: true }
-
       - working-directory: main
         run: mkdir compiler\cmake-build-release
-
       - working-directory: main\compiler\cmake-build-release
         run: cmake ..\ -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release
-
       - working-directory: main\compiler\cmake-build-release
         run: cmake --build . --config Release
-
       - run: echo "${{ github.workspace }}\main\compiler\bin\Release" >> $env:GITHUB_PATH
-
       - shell: pwsh
         run: python main/compiler/scripts/release.py
-
       - uses: softprops/action-gh-release@v2
         with:
           files: |
@@ -45,24 +40,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { path: main, submodules: true }
-
       - run: |
           sudo apt update
-          sudo apt install -y cmake ninja-build g++ p7zip-full
-
+          sudo apt install -y cmake ninja-build g++ p7zip-full mingw-w64
       - working-directory: main
         run: mkdir -p compiler/cmake-build-release
-
       - working-directory: main/compiler/cmake-build-release
         run: cmake -G Ninja -DCMAKE_BUILD_TYPE=Release ../
-
       - working-directory: main/compiler/cmake-build-release
         run: ninja all
-
       - run: echo "${{ github.workspace }}/main/compiler/bin" >> $GITHUB_PATH
-
       - run: python main/compiler/scripts/release.py
-
       - uses: softprops/action-gh-release@v2
         with:
           files: |
@@ -77,30 +65,24 @@ jobs:
     permissions: { contents: write }
     steps:
       - run: brew install cmake ninja gcc p7zip
-
       - run: |
-          ZIG_ROOT="$RUNNER_TEMP/zig"
-          mkdir -p "$ZIG_ROOT"
           curl -Lf "https://ziglang.org/download/${ZIG_VERSION}/zig-macos-x86_64-${ZIG_VERSION}.tar.xz" -o zig.tar.xz
-          tar -xJf zig.tar.xz -C "$ZIG_ROOT" --strip-components=1
-          echo "$ZIG_ROOT" >> "$GITHUB_PATH"
-
+          mkdir -p "$RUNNER_TEMP/zig"
+          tar -xJf zig.tar.xz -C "$RUNNER_TEMP/zig" --strip-components=1
+          echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
       - uses: actions/checkout@v4
         with: { path: main, submodules: true }
-
+      - name: patch-darwin-triples
+        run: |
+          sed -i '' -e 's/-macos-gnu/-macos-none/g' main/compiler/scripts/release.py
       - working-directory: main
         run: mkdir -p compiler/cmake-build-release
-
       - working-directory: main/compiler/cmake-build-release
         run: cmake -G Ninja -DCMAKE_BUILD_TYPE=Release ../
-
       - working-directory: main/compiler/cmake-build-release
         run: ninja all
-
       - run: echo "${{ github.workspace }}/main/compiler/bin" >> $GITHUB_PATH
-
       - run: python main/compiler/scripts/release.py
-
       - uses: softprops/action-gh-release@v2
         with:
           files: |
