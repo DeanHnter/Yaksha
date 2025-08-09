@@ -40,7 +40,7 @@ jobs:
           fail_on_unmatched_files: false
 
   release-linux:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     permissions: { contents: write }
     steps:
       - uses: actions/checkout@v4
@@ -73,7 +73,7 @@ jobs:
           fail_on_unmatched_files: false
 
   release-macos:
-    runs-on: macos-12
+    runs-on: macos-latest
     permissions: { contents: write }
     steps:
       - run: brew install cmake ninja gcc p7zip
