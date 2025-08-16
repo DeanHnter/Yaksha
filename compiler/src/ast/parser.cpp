@@ -302,7 +302,7 @@ inline std::string token_brief_desc(const yaksha::token& tok) {
   if (!tok.token_.empty()) return "'" + tok.token_ + "'";
   return yaksha::token_to_str(tok.type_);
 }
-expr *parser::primary() {
+expr* parser::primary() {
   if (match({
           token_type::KEYWORD_FALSE,       token_type::KEYWORD_TRUE,
           token_type::KEYWORD_NONE,        token_type::DOUBLE_NUMBER,
@@ -333,12 +333,9 @@ expr *parser::primary() {
     consume(token_type::PAREN_CLOSE, "Expect ')' after expression");
     return pool_.c_grouping_expr(ex);
   }
-  token *current_token = peek();
+  token* current_token = peek();
   std::string error_message = "Expected expression";
-  bool found_assignment_pattern = false;
-  bool found_colon_pattern = false;
-  bool has_recent_newline = false;
-  bool has_recent_dedent = false;
+  bool found_assignment_pattern,found_colon_pattern,has_recent_newline,has_recent_dedent = false;
   {
     const int start = std::max(0, static_cast<int>(current_) - kHistoryLookback);
     for (int i = start; i < static_cast<int>(current_); ++i) {
@@ -354,17 +351,16 @@ expr *parser::primary() {
       }
     }
   }
-  std::string context;
-  std::string current_token_desc;
+  std::string context,current_token_desc;
   {
-    const int last = static_cast<int>(tokens_.size()) - 1;
+    const int last  = static_cast<int>(tokens_.size()) - 1;
     const int start = std::max(0, static_cast<int>(current_) - kContextWindow);
     const int end   = std::min(last, static_cast<int>(current_ + kContextWindow));
     for (int i = start; i <= end; ++i) {
       if (i < 0 || i >= static_cast<int>(tokens_.size())) continue;
-      token *tok = tokens_[i];
+      token* tok = tokens_[i];
       if (i == static_cast<int>(current_)) {
-        current_token_desc = token_brief_desc(*tok);
+        current_token_desc = describe_token(*tok); // uses helpers from token.h
       } else {
         if (tok->type_ == token_type::NEW_LINE) {
           context += "'\\n'";
@@ -385,11 +381,14 @@ expr *parser::primary() {
   if (current_token_desc.empty()) {
     current_token_desc = "unknown token";
   }
-  auto expected_primary_desc = []() -> std::string {
-    return " Expected one of: identifier, literal (number/string/boolean/None), '('.";
+  auto expected_primary_desc = [&](const token& tok) -> std::string {
+    // primary() accepts identifier, literal, or '(' expression ')'
+    return " Expected one of: identifier, literal (number/string/boolean/None), or '('; "
+           "instead found: " + describe_token(tok) + ".";
   };
+
   auto build_error_suffix = [&](const token& tok) -> std::string {
-    const std::string expected = expected_primary_desc();
+    const std::string expected = expected_primary_desc(tok);
     switch (tok.type_) {
       case token_type::KEYWORD_IF: {
         const char* base = ", but found 'if' keyword";
@@ -410,7 +409,7 @@ expr *parser::primary() {
   };
   error_message += build_error_suffix(*current_token);
   if (!context.empty()) {
-    error_message += " Near: " + context;
+    error_message += " Near: '" + context + "'";
   }
   throw error(peek(), error_message);
 }
