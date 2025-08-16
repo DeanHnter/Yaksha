@@ -382,19 +382,9 @@ expr *parser::primary() {
     return " Expected one of: identifier, literal (number/string/boolean/None), or '('; "
            "instead found: " + describe_token(tok) + ".";
   };
-
   auto build_error_suffix = [&](const token& tok) -> std::string {
     const std::string expected = expected_primary_desc(tok);
     switch (tok.type_) {
-      case token_type::KEYWORD_IF: {
-        const char* base = ", but found 'if' keyword";
-        const char* hint =
-          found_assignment_pattern ? " after an assignment; did you mean to start an indented block?"
-        : has_recent_dedent ? " where an expression was expected; ensure 'if' starts a new statement"
-        : (found_colon_pattern && !found_assignment_pattern) ? " that may belong to the previous block; check indentation"
-        : "";
-        return std::string(base) + std::string(hint) + "." + expected;
-      }
       case token_type::BA_DEDENT:
         return ", but found block dedent. Check ':' and indentation." + expected;
       case token_type::NEW_LINE:
