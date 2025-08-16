@@ -298,10 +298,6 @@ expr *parser::match_rest_of_curly_call(expr *data_type_expr) {
   return pool_.c_curly_call_expr(data_type_expr, curly_open, values,
                                  curly_close);
 }
-inline std::string token_brief_desc(const yaksha::token& tok) {
-  if (!tok.token_.empty()) return "'" + tok.token_ + "'";
-  return yaksha::token_to_str(tok.type_);
-}
 expr *parser::primary() {
   if (match({
           token_type::KEYWORD_FALSE,       token_type::KEYWORD_TRUE,
