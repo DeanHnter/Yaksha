@@ -302,7 +302,7 @@ inline std::string token_brief_desc(const yaksha::token& tok) {
   if (!tok.token_.empty()) return "'" + tok.token_ + "'";
   return yaksha::token_to_str(tok.type_);
 }
-expr* parser::primary() {
+expr *parser::primary() {
   if (match({
           token_type::KEYWORD_FALSE,       token_type::KEYWORD_TRUE,
           token_type::KEYWORD_NONE,        token_type::DOUBLE_NUMBER,
@@ -333,7 +333,7 @@ expr* parser::primary() {
     consume(token_type::PAREN_CLOSE, "Expect ')' after expression");
     return pool_.c_grouping_expr(ex);
   }
-  token* current_token = peek();
+  token *current_token = peek();
   std::string error_message = "Expected expression";
   bool found_assignment_pattern,found_colon_pattern,has_recent_newline,has_recent_dedent = false;
   {
@@ -358,7 +358,7 @@ expr* parser::primary() {
     const int end   = std::min(last, static_cast<int>(current_ + kContextWindow));
     for (int i = start; i <= end; ++i) {
       if (i < 0 || i >= static_cast<int>(tokens_.size())) continue;
-      token* tok = tokens_[i];
+      token *tok = tokens_[i];
       if (i == static_cast<int>(current_)) {
         current_token_desc = describe_token(*tok); // uses helpers from token.h
       } else {
