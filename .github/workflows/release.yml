@@ -1,59 +1,130 @@
 on:
   push:
-    tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
   workflow_dispatch:
+
 env:
   PYTHONIOENCODING: utf-8
   PYTHONLEGACYWINDOWSSTDIO: utf-8
+  ZIG_VERSION: 0.15.0
+
 jobs:
-  release:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [windows-2019]
-    permissions:
-      contents: write
+  release-windows:
+    runs-on: windows-latest
+    permissions: { contents: write }
     steps:
-    - name: Checkout git repo
-      uses: actions/checkout@v4
-      with:
-        path: main
-        submodules: 'true'
-    - name: Build zips & 7zs
-      run: python main/compiler/scripts/release.py
-    - name: Release
-      uses: softprops/action-gh-release@v2
-      with:
-        files: |
-          main/compiler/comp_output_test/yaksha_v*.7z
-          main/compiler/comp_output_test/yaksha_v*.tar.gz
-          main/compiler/comp_output_test/yaksha_v*.zip
-        draft: 'true'
-        fail_on_unmatched_files: 'false'
-  release-macos:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [macos-latest]
-    permissions:
-      contents: write
-    steps:
-      - name: Install software
-        run: brew install cmake ninja gcc p7zip
-      - name: Checkout git repo
-        uses: actions/checkout@v4
-        with:
-          path: main
-          submodules: 'true'
-      - name: Build zips & 7zs
+      - uses: actions/checkout@v4
+        with: { path: main, submodules: true }
+
+      - working-directory: main
+        run: mkdir compiler\cmake-build-release
+
+      - working-directory: main\compiler\cmake-build-release
+        run: cmake ..\ -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release
+
+      - working-directory: main\compiler\cmake-build-release
+        run: cmake --build . --config Release
+
+      - shell: pwsh
+        run: |
+          $dest = "main/compiler/bin/Release"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Copy-Item "main/compiler/bin/yaksha.exe"  $dest -ErrorAction SilentlyContinue
+          Copy-Item "main/compiler/bin/yakshac.exe" $dest -ErrorAction SilentlyContinue
+          Add-Content $env:GITHUB_PATH "${{ github.workspace }}\main\compiler\bin\Release"
+
+      - shell: pwsh
         run: python main/compiler/scripts/release.py
-      - name: Release
-        uses: softprops/action-gh-release@v2
+
+      - uses: softprops/action-gh-release@v2
         with:
           files: |
             main/compiler/comp_output_test/yaksha_v*.7z
             main/compiler/comp_output_test/yaksha_v*.tar.gz
             main/compiler/comp_output_test/yaksha_v*.zip
-          draft: 'true'
-          fail_on_unmatched_files: 'false'
+          draft: true
+          fail_on_unmatched_files: false
+          
+  release-linux:
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: main, submodules: true }
+
+      - run: |
+          sudo apt update
+          sudo apt install -y cmake ninja-build g++ p7zip-full mingw-w64
+
+      - working-directory: main
+        run: mkdir -p compiler/cmake-build-release
+
+      - working-directory: main/compiler/cmake-build-release
+        run: cmake -G Ninja -DCMAKE_BUILD_TYPE=Release ../
+
+      - working-directory: main/compiler/cmake-build-release
+        run: ninja all
+
+      - name: copy binaries for release.py
+        run: |
+          mkdir -p main/compiler/bin/Release
+          for f in yaksha yakshac; do
+            [ -f main/compiler/bin/$f ]      && cp main/compiler/bin/$f      main/compiler/bin/Release/
+            [ -f main/compiler/bin/$f.exe ]  && cp main/compiler/bin/$f.exe  main/compiler/bin/Release/
+          done
+          echo "${{ github.workspace }}/main/compiler/bin/Release" >> $GITHUB_PATH
+
+      - run: python main/compiler/scripts/release.py
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            main/compiler/comp_output_test/yaksha_v*.7z
+            main/compiler/comp_output_test/yaksha_v*.tar.gz
+            main/compiler/comp_output_test/yaksha_v*.zip
+          draft: true
+          fail_on_unmatched_files: false
+
+  release-macos:
+    runs-on: macos-latest
+    permissions: { contents: write }
+    steps:
+      - run: brew install cmake ninja gcc p7zip
+
+      - run: |
+          curl -Lf "https://ziglang.org/download/${ZIG_VERSION}/zig-macos-x86_64-${ZIG_VERSION}.tar.xz" -o zig.tar.xz
+          mkdir -p "$RUNNER_TEMP/zig"
+          tar -xJf zig.tar.xz -C "$RUNNER_TEMP/zig" --strip-components=1
+          echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
+
+      - uses: actions/checkout@v4
+        with: { path: main, submodules: true }
+
+      - working-directory: main
+        run: mkdir -p compiler/cmake-build-release
+
+      - working-directory: main/compiler/cmake-build-release
+        run: cmake -G Ninja -DCMAKE_BUILD_TYPE=Release ../
+
+      - working-directory: main/compiler/cmake-build-release
+        run: ninja all
+
+      - name: copy binaries for release.py
+        run: |
+          mkdir -p main/compiler/bin/Release
+          for f in yaksha yakshac; do
+            [ -f main/compiler/bin/$f ]      && cp main/compiler/bin/$f      main/compiler/bin/Release/
+            [ -f main/compiler/bin/$f.exe ]  && cp main/compiler/bin/$f.exe  main/compiler/bin/Release/
+          done
+          echo "${{ github.workspace }}/main/compiler/bin/Release" >> $GITHUB_PATH
+
+      - run: python main/compiler/scripts/release.py
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            main/compiler/comp_output_test/yaksha_v*.7z
+            main/compiler/comp_output_test/yaksha_v*.tar.gz
+            main/compiler/comp_output_test/yaksha_v*.zip
+          draft: true
+          fail_on_unmatched_files: false
