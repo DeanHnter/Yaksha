@@ -92,5 +92,8 @@ jobs:
           ninja all
       - name: Test
         working-directory: main/compiler/cmake-build-release
+        env:
+            CTEST_OUTPUT_ON_FAILURE: 1
+            CTEST_PARALLEL_LEVEL: 1
         run: |
           ninja test
