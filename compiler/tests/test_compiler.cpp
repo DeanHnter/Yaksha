@@ -43,8 +43,10 @@
 #include <string>
 #include <sstream>
 #include <algorithm>
+#include <fstream>
+#include <unordered_map>
+#include <unordered_set>
 using namespace yaksha;
-// Add these includes at the top of test_compiler.cpp if not already present
 static void test_compile_yaka_file(const std::string &yaka_code_file) {
   std::string exe_path = get_my_exe_path();
   auto libs_path =
@@ -77,34 +79,107 @@ static void test_compile_yaka_file(const std::string &yaka_code_file) {
   // write snapshot .c file
   write_file(result.code_, c_code_file);
 
+  // Prepare fallback line lookups from in-memory contents (used if file_ can't be opened)
+  auto split_lines = [](const std::string& s) {
+    std::vector<std::string> out;
+    out.reserve(std::count(s.begin(), s.end(), '\n') + 1);
+    size_t start = 0;
+    while (start <= s.size()) {
+      size_t nl = s.find('\n', start);
+      if (nl == std::string::npos) {
+        out.emplace_back(s.substr(start));
+        break;
+      } else {
+        out.emplace_back(s.substr(start, nl - start));
+        start = nl + 1;
+      }
+    }
+    return out;
+  };
+  auto parsed_lines = split_lines(result.code_);
+  auto expected_lines = split_lines(snapshot_code);
+
+  // Build pointer sets to know whether a token belongs to parsed or expected
+  std::unordered_set<const token*> parsed_token_ptrs(c_code.tokens_.begin(), c_code.tokens_.end());
+  std::unordered_set<const token*> expected_token_ptrs(token_snapshot.begin(), token_snapshot.end());
+
+  // Cache file lines for tokens' file_ values
+  std::unordered_map<std::string, std::vector<std::string>> file_lines_cache;
+
+  auto load_file_lines = [&](const std::string& path) -> const std::vector<std::string>& {
+    auto it = file_lines_cache.find(path);
+    if (it != file_lines_cache.end()) return it->second;
+    std::vector<std::string> lines;
+    std::ifstream ifs(path);
+    if (ifs) {
+      std::string line;
+      while (std::getline(ifs, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back(); // normalize CRLF
+        lines.push_back(line);
+      }
+    }
+    return file_lines_cache.emplace(path, std::move(lines)).first->second;
+  };
+
+  auto get_line_for_token = [&](const token* t) -> std::string {
+    if (!t) return "<null token>";
+    // First try to read from the file path stored in the token
+    if (!t->file_.empty()) {
+      const auto& lines = load_file_lines(t->file_);
+      if (t->line_ > 0) {
+        size_t idx = static_cast<size_t>(t->line_ - 1);
+        if (idx < lines.size()) return lines[idx];
+      }
+    }
+    // Fallback: use in-memory text depending on origin of token
+    if (parsed_token_ptrs.count(t)) {
+      size_t idx = t->line_ > 0 ? static_cast<size_t>(t->line_ - 1) : static_cast<size_t>(-1);
+      if (idx < parsed_lines.size()) return parsed_lines[idx];
+    }
+    if (expected_token_ptrs.count(t)) {
+      size_t idx = t->line_ > 0 ? static_cast<size_t>(t->line_ - 1) : static_cast<size_t>(-1);
+      if (idx < expected_lines.size()) return expected_lines[idx];
+    }
+    std::ostringstream oss;
+    oss << "<line unavailable for file '" << t->file_ << "' line " << t->line_ << ">";
+    return oss.str();
+  };
+
+  auto caret_for = [](const token* t, const std::string& line) -> std::string {
+    if (!t) return "";
+    size_t pos = (t->pos_ > 0 ? static_cast<size_t>(t->pos_ - 1) : 0);
+    if (pos > line.size()) pos = line.size();
+    return std::string(pos, ' ') + '^';
+  };
+
+  auto tokens_equal_ignoring_gensym = [](const token* a, const token* b) -> bool {
+    if (!a || !b) return a == b;
+    if (a->file_ != b->file_) return false;
+    if (a->line_ != b->line_) return false;
+    if (a->pos_ != b->pos_) return false;
+    // Ignore gensym token text if both start with "g_"
+    if (!(a->token_.rfind("g_", 0) == 0 && b->token_.rfind("g_", 0) == 0)) {
+      if (a->token_ != b->token_) return false;
+    }
+    if (a->type_ != b->type_) return false;
+    return true;
+  };
+
+  auto dump_token = [](const token* t) -> std::string {
+    if (!t) return "<null>";
+    std::ostringstream oss;
+    oss << "{file:'" << t->file_
+        << "', line:" << t->line_
+        << ", pos:" << t->pos_
+        << ", token:'" << t->token_
+        << "', type:" << static_cast<int>(t->type_)
+        << "}";
+    return oss.str();
+  };
+
   // --------------------------------------------
   // compare current tokens with snapshot (with detailed failure reporting)
   {
-    auto tokens_equal_ignoring_gensym = [](const token* a, const token* b) -> bool {
-      if (!a || !b) return a == b;
-      if (a->file_ != b->file_) return false;
-      if (a->line_ != b->line_) return false;
-      if (a->pos_ != b->pos_) return false;
-      // Ignore gensym token text if both start with "g_"
-      if (!(a->token_.rfind("g_", 0) == 0 && b->token_.rfind("g_", 0) == 0)) {
-        if (a->token_ != b->token_) return false;
-      }
-      if (a->type_ != b->type_) return false;
-      return true;
-    };
-
-    auto dump_token = [](const token* t) -> std::string {
-      if (!t) return "<null>";
-      std::ostringstream oss;
-      oss << "{file:'" << t->file_
-          << "', line:" << t->line_
-          << ", pos:" << t->pos_
-          << ", token:'" << t->token_
-          << "', type:" << static_cast<int>(t->type_)
-          << "}";
-      return oss.str();
-    };
-
     // Size check with explicit diff message (Catch2 v2: use FAIL for messages)
     const size_t parsed_sz = c_code.tokens_.size();
     const size_t expect_sz = token_snapshot.size();
@@ -124,14 +199,46 @@ static void test_compile_yaka_file(const std::string &yaka_code_file) {
           << " Expected=" << expect_sz << "\n";
 
       if (first_diff < min_sz) {
+        auto parsed_tok = c_code.tokens_[first_diff];
+        auto expected_tok = token_snapshot[first_diff];
+        auto parsed_line = get_line_for_token(parsed_tok);
+        auto expected_line = get_line_for_token(expected_tok);
+
         msg << "First difference at index " << first_diff << "\n"
-            << "Parsed : " << dump_token(c_code.tokens_[first_diff]) << "\n"
-            << "Expected: " << dump_token(token_snapshot[first_diff]) << "\n";
+            << "Parsed : " << dump_token(parsed_tok) << "\n"
+            << "Expected: " << dump_token(expected_tok) << "\n";
+
+        msg << "Parsed  " << parsed_tok->file_ << ":" << parsed_tok->line_ << ":" << parsed_tok->pos_ << "\n"
+            << "  " << parsed_line << "\n"
+            << "  " << caret_for(parsed_tok, parsed_line) << "\n";
+
+        msg << "Expected " << expected_tok->file_ << ":" << expected_tok->line_ << ":" << expected_tok->pos_ << "\n"
+            << "  " << expected_line << "\n"
+            << "  " << caret_for(expected_tok, expected_line) << "\n";
       } else {
         msg << "All first " << min_sz
             << " tokens equal; difference due to extra/missing tokens.\n";
+        // Show context for first extra/missing token if available
+        if (parsed_sz > expect_sz && expect_sz < c_code.tokens_.size()) {
+          auto t = c_code.tokens_[expect_sz];
+          auto line = get_line_for_token(t);
+          msg << "First extra parsed token at index " << expect_sz << ": "
+              << dump_token(t) << "\n";
+          msg << "Parsed  " << t->file_ << ":" << t->line_ << ":" << t->pos_ << "\n"
+              << "  " << line << "\n"
+              << "  " << caret_for(t, line) << "\n";
+        } else if (parsed_sz < expect_sz && parsed_sz < token_snapshot.size()) {
+          auto t = token_snapshot[parsed_sz];
+          auto line = get_line_for_token(t);
+          msg << "First missing expected token at index " << parsed_sz << ": "
+              << dump_token(t) << "\n";
+          msg << "Expected " << t->file_ << ":" << t->line_ << ":" << t->pos_ << "\n"
+              << "  " << line << "\n"
+              << "  " << caret_for(t, line) << "\n";
+        }
       }
 
+      // Also preview a few extra/missing tokens
       const size_t preview = 8;
       if (parsed_sz > expect_sz) {
         msg << "Extra tokens in parsed output starting at index " << expect_sz << ":\n";
@@ -148,35 +255,43 @@ static void test_compile_yaka_file(const std::string &yaka_code_file) {
       FAIL(msg.str());
     }
 
-    // Per-token comparison with explicit message on mismatch
+    // Per-token comparison with explicit message on mismatch (print source line)
     for (size_t i = 0; i < token_snapshot.size(); ++i) {
-      auto parsed = c_code.tokens_[i];
-      auto expected = token_snapshot[i];
+      auto parsed_tok = c_code.tokens_[i];
+      auto expected_tok = token_snapshot[i];
 
       auto mk_msg = [&](const char* what) {
+        auto parsed_line = get_line_for_token(parsed_tok);
+        auto expected_line = get_line_for_token(expected_tok);
         std::ostringstream oss;
         oss << what << " mismatch at index " << i << "\n"
-            << "Parsed : " << dump_token(parsed) << "\n"
-            << "Expected: " << dump_token(expected) << "\n";
+            << "Parsed : " << dump_token(parsed_tok) << "\n"
+            << "Expected: " << dump_token(expected_tok) << "\n"
+            << "Parsed  " << parsed_tok->file_ << ":" << parsed_tok->line_ << ":" << parsed_tok->pos_ << "\n"
+            << "  " << parsed_line << "\n"
+            << "  " << caret_for(parsed_tok, parsed_line) << "\n"
+            << "Expected " << expected_tok->file_ << ":" << expected_tok->line_ << ":" << expected_tok->pos_ << "\n"
+            << "  " << expected_line << "\n"
+            << "  " << caret_for(expected_tok, expected_line) << "\n";
         return oss.str();
       };
 
-      if (parsed->file_ != expected->file_) {
+      if (parsed_tok->file_ != expected_tok->file_) {
         FAIL(mk_msg("file"));
       }
-      if (parsed->line_ != expected->line_) {
+      if (parsed_tok->line_ != expected_tok->line_) {
         FAIL(mk_msg("line"));
       }
-      if (parsed->pos_ != expected->pos_) {
+      if (parsed_tok->pos_ != expected_tok->pos_) {
         FAIL(mk_msg("pos"));
       }
       // Ignore gensym differences if both start with "g_"
-      if (!(parsed->token_.rfind("g_", 0) == 0 && expected->token_.rfind("g_", 0) == 0)) {
-        if (parsed->token_ != expected->token_) {
+      if (!(parsed_tok->token_.rfind("g_", 0) == 0 && expected_tok->token_.rfind("g_", 0) == 0)) {
+        if (parsed_tok->token_ != expected_tok->token_) {
           FAIL(mk_msg("token"));
         }
       }
-      if (parsed->type_ != expected->type_) {
+      if (parsed_tok->type_ != expected_tok->type_) {
         FAIL(mk_msg("type"));
       }
     }
