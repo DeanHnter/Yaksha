@@ -71,20 +71,82 @@ static void test_compile_yaka_file(const std::string &yaka_code_file) {
   // write snapshot .c file
   write_file(result.code_, c_code_file);
   // compare current tokens with snapshot
-  REQUIRE(c_code.tokens_.size() == token_snapshot.size());
-  for (int i = 0; i < token_snapshot.size(); i++) {
-    auto parsed = c_code.tokens_[i];
-    auto snapshot = token_snapshot[i];
-    REQUIRE(parsed->file_ == snapshot->file_);
-    REQUIRE(parsed->line_ == snapshot->line_);
-    REQUIRE(parsed->pos_ == snapshot->pos_);
-    // Ignore gensym
-    if (!(parsed->token_.rfind("g_", 0) == 0 &&
-          snapshot->token_.rfind("g_", 0) == 0)) {
-      REQUIRE(parsed->token_ == snapshot->token_);
+  auto tokens_equal_ignoring_gensym = [](const token* a, const token* b) -> bool {
+    if (!a || !b) return a == b;
+    if (a->file_ != b->file_) return false;
+    if (a->line_ != b->line_) return false;
+    if (a->pos_ != b->pos_) return false;
+    // Ignore gensym token string if both start with "g_"
+    if (!(a->token_.rfind("g_", 0) == 0 && b->token_.rfind("g_", 0) == 0)) {
+      if (a->token_ != b->token_) return false;
     }
-    REQUIRE(parsed->type_ == snapshot->type_);
+    if (a->type_ != b->type_) return false;
+    return true;
+  };
+
+  auto dump_token = [](const token* t) -> std::string {
+    if (!t) return "<null>";
+    std::ostringstream oss;
+    oss << "{file:'" << t->file_
+        << "', line:" << t->line_
+        << ", pos:" << t->pos_
+        << ", token:'" << t->token_
+        << "', type:" << static_cast<int>(t->type_)
+        << "}";
+    return oss.str();
+  };
+
+  // If sizes differ, report what is missing/extra and where divergence starts
+  if (c_code.tokens_.size() != token_snapshot.size()) {
+    const size_t parsed_sz = c_code.tokens_.size();
+    const size_t expect_sz = token_snapshot.size();
+    INFO("Token count mismatch. Parsed=" << parsed_sz << " Expected=" << expect_sz);
+
+    const size_t min_sz = std::min(parsed_sz, expect_sz);
+    size_t first_diff = min_sz;
+    for (size_t i = 0; i < min_sz; ++i) {
+      if (!tokens_equal_ignoring_gensym(c_code.tokens_[i], token_snapshot[i])) {
+        first_diff = i;
+        break;
+      }
+    }
+
+    if (first_diff < min_sz) {
+      INFO("First difference at index " << first_diff);
+      INFO("Parsed : " << dump_token(c_code.tokens_[first_diff]));
+      INFO("Expected: " << dump_token(token_snapshot[first_diff]));
+    } else {
+      INFO("All first " << min_sz << " tokens are equal; difference is due to extra/missing tokens.");
+    }
+    const size_t preview_count = 8;
+    if (parsed_sz > expect_sz) {
+      INFO("Extra tokens in parsed output starting at index " << expect_sz << ":");
+      for (size_t i = expect_sz; i < std::min(parsed_sz, expect_sz + preview_count); ++i) {
+        INFO("  + " << i << ": " << dump_token(c_code.tokens_[i]));
+      }
+    } else {
+      INFO("Missing tokens (present in expected) starting at index " << parsed_sz << ":");
+      for (size_t i = parsed_sz; i < std::min(expect_sz, parsed_sz + preview_count); ++i) {
+        INFO("  - " << i << ": " << dump_token(token_snapshot[i]));
+      }
+    }
   }
+  REQUIRE(c_code.tokens_.size() == token_snapshot.size());
+  for (size_t i = 0; i < token_snapshot.size(); i++) {
+    auto parsed = c_code.tokens_[i];
+    auto expected = token_snapshot[i];
+    if (!tokens_equal_ignoring_gensym(parsed, expected)) {
+      INFO("Token mismatch at index " << i);
+      INFO("Parsed : " << dump_token(parsed));
+      INFO("Expected: " << dump_token(expected));
+    }
+    REQUIRE(parsed->file_ == expected->file_);
+    REQUIRE(parsed->line_ == expected->line_);
+    REQUIRE(parsed->pos_ == expected->pos_);
+    if (!(parsed->token_.rfind("g_", 0) == 0 && expected->token_.rfind("g_", 0) == 0)) {
+      REQUIRE(parsed->token_ == expected->token_);
+    }
+    REQUIRE(parsed->type_ == expected->type_);
 }
 TEST_CASE("compiler: Hello World") {
   test_compile_yaka_file("../test_data/compiler_tests/test1.yaka");
