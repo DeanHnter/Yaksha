@@ -42,6 +42,7 @@
 #include "tokenizer/tokenizer.h"
 #include <string>
 #include <sstream>
+#include <algorithm>
 using namespace yaksha;
 static void test_compile_yaka_file(const std::string &yaka_code_file) {
   std::string exe_path = get_my_exe_path();
@@ -71,6 +72,8 @@ static void test_compile_yaka_file(const std::string &yaka_code_file) {
   c_code.tokenize();
   // write snapshot .c file
   write_file(result.code_, c_code_file);
+
+
   // compare current tokens with snapshot
   auto tokens_equal_ignoring_gensym = [](const token* a, const token* b) -> bool {
     if (!a || !b) return a == b;
@@ -84,60 +87,94 @@ static void test_compile_yaka_file(const std::string &yaka_code_file) {
     if (a->type_ != b->type_) return false;
     return true;
   };
-auto dump_token = [](const token* t) -> std::string {
-  if (!t) return "<null>";
-  std::ostringstream oss;
-  oss << "{file:'" << t->file_
-      << "', line:" << t->line_
-      << ", pos:" << t->pos_
-      << ", token:'" << t->token_
-      << "', type:" << static_cast<int>(t->type_)
-      << "}";
-  return oss.str();
-};
+  
+  auto dump_token = [](const token* t) -> std::string {
+    if (!t) return "<null>";
+    std::ostringstream oss;
+    oss << "{file:'" << t->file_
+        << "', line:" << t->line_
+        << ", pos:" << t->pos_
+        << ", token:'" << t->token_
+        << "', type:" << static_cast<int>(t->type_)
+        << "}";
+    return oss.str();
+  };
 
-// Size check with explicit diff message
-{
-  const size_t parsed_sz = c_code.tokens_.size();
-  const size_t expect_sz = token_snapshot.size();
-  if (parsed_sz != expect_sz) {
-    const size_t min_sz = std::min(parsed_sz, expect_sz);
-
-    size_t first_diff = min_sz;
-    for (size_t i = 0; i < min_sz; ++i) {
-      if (!tokens_equal_ignoring_gensym(c_code.tokens_[i], token_snapshot[i])) {
-        first_diff = i;
-        break;
+  // Size check with explicit diff message (use FAIL for Catch2 v2)
+  {
+    const size_t parsed_sz = c_code.tokens_.size();
+    const size_t expect_sz = token_snapshot.size();
+    if (parsed_sz != expect_sz) {
+      const size_t min_sz = std::min(parsed_sz, expect_sz);
+  
+      size_t first_diff = min_sz;
+      for (size_t i = 0; i < min_sz; ++i) {
+        if (!tokens_equal_ignoring_gensym(c_code.tokens_[i], token_snapshot[i])) {
+          first_diff = i;
+          break;
+        }
+      }
+  
+      std::ostringstream msg;
+      msg << "Token count mismatch. Parsed=" << parsed_sz
+          << " Expected=" << expect_sz << "\n";
+  
+      if (first_diff < min_sz) {
+        msg << "First difference at index " << first_diff << "\n"
+            << "Parsed : " << dump_token(c_code.tokens_[first_diff]) << "\n"
+            << "Expected: " << dump_token(token_snapshot[first_diff]) << "\n";
+      } else {
+        msg << "All first " << min_sz
+            << " tokens equal; difference due to extra/missing tokens.\n";
+      }
+  
+      const size_t preview = 8;
+      if (parsed_sz > expect_sz) {
+        msg << "Extra tokens in parsed output starting at index " << expect_sz << ":\n";
+        for (size_t i = expect_sz; i < std::min(parsed_sz, expect_sz + preview); ++i) {
+          msg << "  + " << i << ": " << dump_token(c_code.tokens_[i]) << "\n";
+        }
+      } else {
+        msg << "Missing tokens (present in expected) starting at index " << parsed_sz << ":\n";
+        for (size_t i = parsed_sz; i < std::min(expect_sz, parsed_sz + preview); ++i) {
+          msg << "  - " << i << ": " << dump_token(token_snapshot[i]) << "\n";
+        }
+      }
+  
+      FAIL(msg.str());
+    }
+  }
+  
+  // Per-token comparison with explicit message on mismatch (use FAIL for message)
+  for (size_t i = 0; i < token_snapshot.size(); i++) {
+    auto parsed = c_code.tokens_[i];
+    auto expected = token_snapshot[i];
+  
+    auto mk_msg = [&](const char* what) {
+      std::ostringstream oss;
+      oss << what << " mismatch at index " << i << "\n"
+          << "Parsed : " << dump_token(parsed) << "\n"
+          << "Expected: " << dump_token(expected) << "\n";
+      return oss.str();
+    };
+  
+    if (parsed->file_ != expected->file_) {
+      FAIL(mk_msg("file"));
+    }
+    if (parsed->line_ != expected->line_) {
+      FAIL(mk_msg("line"));
+    }
+    if (parsed->pos_ != expected->pos_) {
+      FAIL(mk_msg("pos"));
+    }
+    if (!(parsed->token_.rfind("g_", 0) == 0 && expected->token_.rfind("g_", 0) == 0)) {
+      if (parsed->token_ != expected->token_) {
+        FAIL(mk_msg("token"));
       }
     }
-
-    std::ostringstream msg;
-    msg << "Token count mismatch. Parsed=" << parsed_sz
-        << " Expected=" << expect_sz << "\n";
-
-    if (first_diff < min_sz) {
-      msg << "First difference at index " << first_diff << "\n"
-          << "Parsed : " << dump_token(c_code.tokens_[first_diff]) << "\n"
-          << "Expected: " << dump_token(token_snapshot[first_diff]) << "\n";
-    } else {
-      msg << "All first " << min_sz
-          << " tokens equal; difference due to extra/missing tokens.\n";
+    if (parsed->type_ != expected->type_) {
+      FAIL(mk_msg("type"));
     }
-
-    const size_t preview = 8;
-    if (parsed_sz > expect_sz) {
-      msg << "Extra tokens in parsed output starting at index " << expect_sz << ":\n";
-      for (size_t i = expect_sz; i < std::min(parsed_sz, expect_sz + preview); ++i) {
-        msg << "  + " << i << ": " << dump_token(c_code.tokens_[i]) << "\n";
-      }
-    } else {
-      msg << "Missing tokens (present in expected) starting at index " << parsed_sz << ":\n";
-      for (size_t i = parsed_sz; i < std::min(expect_sz, parsed_sz + preview); ++i) {
-        msg << "  - " << i << ": " << dump_token(token_snapshot[i]) << "\n";
-      }
-    }
-
-    REQUIRE_MESSAGE(false, msg.str());
   }
 }
 
