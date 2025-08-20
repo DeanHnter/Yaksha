@@ -96,9 +96,9 @@ jobs:
             CTEST_OUTPUT_ON_FAILURE: 1
             CTEST_PARALLEL_LEVEL: 1
         run: |
-          ninja test
-      - name: Upload output.c
-        if: ${{ always() && steps.test.outcome == 'failure' }}
+          ninja test  
+      - name: Upload output.c on test failure
+        if: ${{ steps.test.outcome == 'failure' }}
         uses: actions/upload-artifact@v4
         with:
           name: output.c-${{ matrix.os }}
@@ -106,3 +106,6 @@ jobs:
             main/**/output.c
           if-no-files-found: ignore
           retention-days: 7
+      - name: Fail job if tests failed
+        if: ${{ steps.test.outcome == 'failure' }}
+        run: exit 1
