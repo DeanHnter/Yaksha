@@ -147,6 +147,7 @@ static void test_compile_yaka_file(const std::string &yaka_code_file) {
       REQUIRE(parsed->token_ == expected->token_);
     }
     REQUIRE(parsed->type_ == expected->type_);
+  }
 }
 TEST_CASE("compiler: Hello World") {
   test_compile_yaka_file("../test_data/compiler_tests/test1.yaka");
