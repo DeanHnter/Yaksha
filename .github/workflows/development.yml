@@ -97,11 +97,35 @@ jobs:
             CTEST_PARALLEL_LEVEL: 1
         run: |
           ninja test  
-      - name: Upload output.c
-        if: ${{ failure() }}
+
+      - name: Collect output.c (macOS)
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Workspace: $GITHUB_WORKSPACE"
+          dest="${RUNNER_TEMP}/outputc"
+          mkdir -p "$dest"
+          echo "Searching for output.c..."
+          found=$(find "$GITHUB_WORKSPACE" -type f -name 'output.c' -print)
+          echo "$found"
+          if [ -n "$found" ]; then
+            while IFS= read -r f; do
+              cp -v "$f" "$dest"/
+            done <<<"$found"
+          fi
+          echo "Staged to: $dest"
+          ls -al "$dest" || true
+
+      - name: Upload output.c on test failure
+        if: ${{ always() && steps.test.conclusion == 'failure' }}
         uses: actions/upload-artifact@v4
         with:
           name: output.c-${{ matrix.os }}
-          path: |
-            main/**/output.c
+          path: ${{ runner.temp }}/outputc/**
+          if-no-files-found: warn
           retention-days: 7
+
+      - name: Fail job if tests failed
+        if: ${{ always() && steps.test.conclusion == 'failure' }}
+        run: exit 1
