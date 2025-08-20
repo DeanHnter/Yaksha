@@ -97,3 +97,12 @@ jobs:
             CTEST_PARALLEL_LEVEL: 1
         run: |
           ninja test
+      - name: Upload output.c
+        if: ${{ always() && steps.test.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: output.c-${{ matrix.os }}
+          path: |
+            main/**/output.c
+          if-no-files-found: ignore
+          retention-days: 7
