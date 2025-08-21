@@ -78,7 +78,25 @@ static void test_compile_yaka_file(const std::string &yaka_code_file) {
 
   // write snapshot .c file
   write_file(result.code_, c_code_file);
+  {
+    std::filesystem::path dump_dir;
+    if (const char* env = std::getenv("YAKSHA_DUMP_DIR"); env && *env)
+        dump_dir = env;
+    else
+        dump_dir = std::filesystem::temp_directory_path() / "yaksha_dump";
 
+    std::error_code ec;
+    std::filesystem::create_directories(dump_dir, ec);   // best-effort
+
+    std::filesystem::path dump_file =
+        dump_dir / std::filesystem::path(c_code_file).filename();
+
+    write_file(result.code_, dump_file.string());
+
+    std::cout << "\n[Yaksha] generated C file written to: "
+              << dump_file << '\n';
+}
+  
   // Prepare fallback line lookups from in-memory contents (used if file_ can't be opened)
   auto split_lines = [](const std::string& s) {
     std::vector<std::string> out;
