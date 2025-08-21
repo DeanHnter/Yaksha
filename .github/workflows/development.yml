@@ -4,6 +4,7 @@ on:
       - main
   workflow_dispatch:
 env:
+  YAKSHA_DUMP_DIR: ${{ runner.temp }}/yaksha_dump
   PYTHONIOENCODING: utf-8
   PYTHONLEGACYWINDOWSSTDIO: utf-8
 
@@ -91,6 +92,7 @@ jobs:
         run: |
           ninja all
       - name: Test
+        id: test
         working-directory: main/compiler/cmake-build-release
         env:
             CTEST_OUTPUT_ON_FAILURE: 1
@@ -98,34 +100,11 @@ jobs:
         run: |
           ninja test  
 
-      - name: Collect output.c (macOS)
-        if: ${{ always() }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "Workspace: $GITHUB_WORKSPACE"
-          dest="${RUNNER_TEMP}/outputc"
-          mkdir -p "$dest"
-          echo "Searching for output.c..."
-          found=$(find "$GITHUB_WORKSPACE" -type f -name 'output.c' -print)
-          echo "$found"
-          if [ -n "$found" ]; then
-            while IFS= read -r f; do
-              cp -v "$f" "$dest"/
-            done <<<"$found"
-          fi
-          echo "Staged to: $dest"
-          ls -al "$dest" || true
-
-      - name: Upload output.c on test failure
-        if: ${{ always() && steps.test.conclusion == 'failure' }}
+      - name: Upload generated C files on failure
+        if: ${{ always() && steps.test.conclusion == 'failure' }}   # 3) use the id
         uses: actions/upload-artifact@v4
         with:
-          name: output.c-${{ matrix.os }}
-          path: ${{ runner.temp }}/outputc/**
+          name: generated-c-${{ matrix.os }}
+          path: ${{ env.YAKSHA_DUMP_DIR }}/**
           if-no-files-found: warn
           retention-days: 7
-
-      - name: Fail job if tests failed
-        if: ${{ always() && steps.test.conclusion == 'failure' }}
-        run: exit 1
