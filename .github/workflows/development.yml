@@ -4,7 +4,6 @@ on:
       - main
   workflow_dispatch:
 env:
-  YAKSHA_DUMP_DIR: ${{ runner.temp }}/yaksha_dump
   PYTHONIOENCODING: utf-8
   PYTHONLEGACYWINDOWSSTDIO: utf-8
 
@@ -66,6 +65,10 @@ jobs:
       run: |
         ninja test
   check-macos-x86_64:
+    env:  
+      YAKSHA_DUMP_DIR: ${{ runner.temp }}/yaksha_dump
+      PYTHONIOENCODING: utf-8
+      PYTHONLEGACYWINDOWSSTDIO: utf-8
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
