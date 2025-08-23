@@ -3396,7 +3396,7 @@ int32_t yy__strings_get(struct yk__bstr nn__s, int32_t nn__pos)
 }
 bool yy__strings_contains(struct yk__bstr nn__haystack, struct yk__bstr nn__needle) 
 {
-    bool val = memmem(yk__bstr_get_reference(nn__haystack), nn__haystack.size, yk__bstr_get_reference(nn__needle), nn__needle.size) != NULL;
+    bool val = memmem(yk__bstr_get_reference(nn__haystack), yk__bstr_len(nn__haystack), yk__bstr_get_reference(nn__needle), yk__bstr_len(nn__needle)) != NULL;
     return val;
 }
 int32_t yy__strings_ord(struct yk__bstr yy__strings_s) 
